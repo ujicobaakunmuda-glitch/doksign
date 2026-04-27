@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tanda Tangan Dokumen</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --ink2: #4a4a6a;
+    --ink3: #8888aa;
+    --surface: #f7f6f2;
+    --card: #ffffff;
+    --accent: #2d5be3;
+    --accent2: #1a3fa0;
+    --success: #1a7a4a;
+    --success-bg: #edf7f2;
+    --error: #c0392b;
+    --error-bg: #fdf2f2;
+    --border: #e2e0da;
+    --qr-border: rgba(45,91,227,0.6);
+    --shadow: 0 2px 24px rgba(30,30,60,0.08);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--surface);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .page-wrap { max-width: 960px; margin: 0 auto; }
+  .logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 20px;
+    color: var(--ink);
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  .logo span { color: var(--accent); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .card-head {
+    padding: 20px 24px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-head h2 { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--ink); margin-bottom: 2px; }
+  .card-head p { font-size: 12px; color: var(--ink3); }
+  .card-body { padding: 20px 24px; }
+
+  /* PDF Viewer */
+  .pdf-outer {
+    overflow: auto;
+    max-height: 76vh;
+    border-radius: 10px;
+    background: #444;
+    position: relative;
+  }
+  .pdf-canvas-wrap {
+    position: relative;
+    display: inline-block;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+  }
+  #pdfCanvas { display: block; }
+
+  /* QR Overlay - draggable */
+  #qrOverlay {
+    position: absolute;
+    cursor: grab;
+    user-select: none;
+    display: none;
+    z-index: 10;
+  }
+  #qrOverlay:active { cursor: grabbing; }
+  #qrOverlay .qr-inner {
+    border: 2px dashed var(--qr-border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.92);
+    padding: 4px;
+    box-shadow: 0 2px 12px rgba(45,91,227,0.18);
+  }
+  #qrOverlay canvas, #qrOverlay img { display: block; border-radius: 3px; }
+  #qrOverlay .qr-label {
+    font-size: 9px;
+    color: var(--accent2);
+    text-align: center;
+    margin-top: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  #qrOverlay .qr-hint {
+    position: absolute;
+    top: -22px;
+    left: 0;
+    font-size: 10px;
+    color: white;
+    background: var(--accent);
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* Resize handle */
+  #qrOverlay .resize-handle {
+    position: absolute;
+    bottom: -6px; right: -6px;
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 3px;
+    cursor: se-resize;
+    z-index: 11;
+  }
+
+  /* Page nav */
+  .page-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px;
+    background: #333;
+    border-radius: 0 0 10px 10px;
+  }
+  .btn-page {
+    background: rgba(255,255,255,0.15);
+    color: white;
+    border: none;
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn-page:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+  .btn-page:disabled { opacity: 0.35; cursor: not-allowed; }
+  .page-info { color: rgba(255,255,255,0.75); font-size: 12px; }
+
+  /* Sidebar fields */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+  .field input[type="text"] {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 7px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+
+  .qr-size-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .qr-size-row label { font-size: 11px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+  .qr-size-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .qr-size-row span { font-size: 12px; color: var(--ink2); min-width: 36px; text-align: right; }
+
+  .msg {
+    padding: 10px 13px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    display: none;
+    line-height: 1.5;
+  }
+  .msg.show { display: block; }
+  .msg.success { background: var(--success-bg); color: var(--success); border: 1px solid #b2dfc8; }
+  .msg.error { background: var(--error-bg); color: var(--error); border: 1px solid #f5c6cb; }
+  .msg.info { background: #f0f4ff; color: var(--accent2); border: 1px solid #c0cefb; }
+
+  .spinner-wrap { display: none; text-align: center; padding: 12px 0; }
+  .spinner-wrap.show { display: block; }
+  .spinner { display: inline-block; width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-wrap p { font-size: 12px; color: var(--ink3); }
+
+  .btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+    margin-top: 2px;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent2); transform: translateY(-1px); }
+  .btn-primary:disabled { background: var(--border); color: var(--ink3); cursor: not-allowed; }
+  .btn-gen {
+    width: 100%;
+    padding: 10px;
+    background: white;
+    color: var(--accent);
+    border: 1.5px solid var(--accent);
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 12px;
+  }
+  .btn-gen:hover { background: #f0f4ff; }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+  .doc-title-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #f0f4ff;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #d0dafb;
+  }
+  .doc-title-bar span { font-size: 13px; color: var(--accent2); font-weight: 500; }
+  .doc-icon { font-size: 16px; }
+
+  /* Done overlay */
+  #donePanel {
+    display: none;
+    text-align: center;
+    padding: 8px 0;
+  }
+  #donePanel.show { display: block; }
+  .done-circle {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--success-bg);
+    border: 2px solid #b2dfc8;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 10px;
+    font-size: 22px;
+  }
+  #donePanel h3 { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--ink); margin-bottom: 4px; }
+  #donePanel p { font-size: 12px; color: var(--ink3); margin-bottom: 14px; }
+  .link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .link-row input { flex: 1; padding: 8px 11px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--ink); background: white; outline: none; font-family: 'DM Sans', sans-serif; }
+  .btn-copy { padding: 8px 12px; background: var(--accent); color: white; border: none; border-radius: 7px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; font-family: 'DM Sans', sans-serif; }
+  .btn-copy:hover { background: var(--accent2); }
+
+  /* Loading screen */
+  #loadScreen {
+    position: fixed;
+    inset: 0;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #loadScreen .logo2 { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--ink); margin-bottom: 20px; }
+  #loadScreen .logo2 span { color: var(--accent); }
+  #loadScreen .spinner { width: 36px; height: 36px; border-width: 3px; }
+  #loadScreen p { font-size: 13px; color: var(--ink3); margin-top: 10px; }
+  #loadScreen.hide { display: none; }
+
+  .note { font-size: 12px; color: var(--ink3); background: #fffbf0; border: 1px solid #f0e0a0; border-radius: 8px; padding: 9px 11px; margin-bottom: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loadScreen">
+  <div class="logo2">Dok<span>Sign</span></div>
+  <div class="spinner"></div>
+  <p id="loadMsg">Memuat dokumen...</p>
+</div>
+
+<div class="page-wrap">
+  <div class="logo">Dok<span>Sign</span> — Tanda Tangan Dokumen</div>
+
+  <div class="layout">
+    <!-- LEFT: PDF Viewer -->
+    <div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Pratinjau Dokumen</h2>
+          <p>Seret QR Code ke posisi tanda tangan yang sudah ada di dokumen</p>
+        </div>
+        <div class="card-body" style="padding: 12px;">
+          <div class="pdf-outer" id="pdfOuter">
+            <div class="pdf-canvas-wrap" id="canvasWrap">
+              <canvas id="pdfCanvas"></canvas>
+              <!-- QR draggable overlay -->
+              <div id="qrOverlay">
+                <div class="qr-hint">⬡ Seret untuk posisikan</div>
+                <div class="qr-inner">
+                  <div id="qrCanvasHolder"></div>
+                  <div class="qr-label" id="qrLabel"></div>
+                </div>
+                <div class="resize-handle" id="resizeHandle"></div>
+              </div>
+            </div>
+          </div>
+          <div class="page-nav">
+            <button class="btn-page" id="btnPrev" onclick="changePage(-1)" disabled>‹ Sebelumnya</button>
+            <span class="page-info" id="pageInfo">Halaman — / —</span>
+            <button class="btn-page" id="btnNext" onclick="changePage(1)" disabled>Berikutnya ›</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Controls -->
+    <div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Data Tanda Tangan</h2>
+          <p>Isi data, lalu posisikan QR di dokumen</p>
+        </div>
+        <div class="card-body">
+
+          <div id="mainPanel">
+            <div class="doc-title-bar">
+              <span class="doc-icon">📄</span>
+              <span id="docTitleDisplay">Memuat...</span>
+            </div>
+
+            <div class="msg" id="msgSign"></div>
+
+            <div class="field">
+              <label>Nama Lengkap <span style="color:var(--error)">*</span></label>
+              <input type="text" id="sigName" placeholder="Nama lengkap penandatangan" maxlength="80">
+            </div>
+            <div class="field">
+              <label>Jabatan</label>
+              <input type="text" id="sigJabatan" placeholder="Contoh: Kepala Bidang" maxlength="80">
+            </div>
+
+            <button class="btn-gen" onclick="generateQR()">🔲 Buat QR Code Tanda Tangan</button>
+
+            <div id="afterQrSection" style="display:none;">
+              <div class="note">
+                ✅ QR Code muncul di dokumen. <strong>Seret QR Code</strong> ke posisi tanda tangan, sesuaikan ukurannya, lalu klik <em>Simpan & Selesai</em>.
+              </div>
+
+              <div class="qr-size-row">
+                <label>Ukuran QR</label>
+                <input type="range" id="qrSizeSlider" min="60" max="200" value="100" oninput="resizeQR(this.value)">
+                <span id="qrSizeVal">100px</span>
+              </div>
+
+              <div class="field">
+                <label>Halaman Tanda Tangan</label>
+                <select id="signPageSel" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;font-size:14px;color:var(--ink);outline:none;"></select>
+              </div>
+
+              <hr class="divider">
+              <div class="spinner-wrap" id="spinSave"><div class="spinner"></div><p>Menyisipkan tanda tangan ke PDF...</p></div>
+              <button class="btn-primary" id="btnSave" onclick="saveSignedPdf()">💾 Simpan & Selesai</button>
+            </div>
+          </div>
+
+          <!-- Done panel -->
+          <div id="donePanel">
+            <div class="done-circle">✅</div>
+            <h3>Tanda Tangan Berhasil!</h3>
+            <p>Dokumen telah ditandatangani dan disimpan ke Google Drive.</p>
+            <div class="link-row">
+              <input type="text" id="finalLink" readonly>
+              <button class="btn-copy" onclick="copyFinalLink()">Salin</button>
+            </div>
+            <a id="openDriveLink" href="#" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none;font-weight:500;">Buka di Google Drive ↗</a>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// KONFIGURASI — sama dengan uploader.html
+// ============================================================
+const CONFIG = {
+  CLIENT_ID: 'ISI_CLIENT_ID_KAMU_DI_SINI',
+  API_KEY:   'ISI_API_KEY_KAMU_DI_SINI',
+};
+// ============================================================
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// State
+const params = new URLSearchParams(location.search);
+const FILE_ID = params.get('fileId');
+const DOC_TITLE = decodeURIComponent(params.get('title') || 'Dokumen');
+
+let pdfDoc = null, currentPage = 1, totalPages = 0, pdfScale = 1.4;
+let pdfBytes = null; // original PDF bytes
+let qrDataURL = null;
+let qrSize = 100;
+let tokenClient, accessToken = null;
+
+// QR overlay drag state
+let isDragging = false, dragOffX = 0, dragOffY = 0;
+let isResizing = false, resizeStartX = 0, resizeStartY = 0, resizeStartSize = 0;
+
+// Sanitize text for display (prevent XSS)
+function sanitizeText(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// --- Init ---
+window.addEventListener('load', async () => {
+  if (!FILE_ID) {
+    document.getElementById('loadMsg').textContent = 'Link tidak valid. fileId tidak ditemukan.';
+    return;
+  }
+  document.getElementById('docTitleDisplay').textContent = DOC_TITLE;
+
+  // Setup GAPI
+  await new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = 'https://apis.google.com/js/api.js';
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+
+  gapi.load('client', async () => {
+    await gapi.client.init({ apiKey: CONFIG.API_KEY });
+    // Load PDF publicly (no auth needed since we set reader:anyone)
+    await loadPdf();
+  });
+
+  // Setup GIS for upload (saving signed PDF)
+  const s2 = document.createElement('script');
+  s2.src = 'https://accounts.google.com/gsi/client';
+  s2.onload = () => {
+    const t = setInterval(() => {
+      if (typeof google !== 'undefined' && google.accounts) {
+        clearInterval(t);
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: CONFIG.CLIENT_ID,
+          scope: 'https://www.googleapis.com/auth/drive.file',
+          callback: onTokenReady,
+        });
+      }
+    }, 150);
+  };
+  document.head.appendChild(s2);
+});
+
+async function loadPdf() {
+  try {
+    document.getElementById('loadMsg').textContent = 'Mengunduh dokumen...';
+
+    // Gunakan Drive API dengan API key untuk download (tidak perlu login)
+    // Ini menghindari CORS dan redirect virus-scan Google Drive
+    const apiUrl = `https://www.googleapis.com/drive/v3/files/${FILE_ID}?alt=media&key=${CONFIG.API_KEY}`;
+
+    const res = await fetch(apiUrl);
+    if (!res.ok) {
+      // Fallback: coba via pdf.js langsung dengan URL embed Drive
+      const embedUrl = `https://drive.google.com/uc?export=download&id=${FILE_ID}&confirm=t`;
+      const loadingTaskFallback = pdfjsLib.getDocument({
+        url: embedUrl,
+        withCredentials: false,
+      });
+      pdfDoc = await loadingTaskFallback.promise;
+      // Untuk fallback, kita tidak punya pdfBytes — gunakan re-fetch via API saat save
+      pdfBytes = null;
+    } else {
+      const buf = await res.arrayBuffer();
+      pdfBytes = new Uint8Array(buf);
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice() });
+      pdfDoc = await loadingTask.promise;
+    }
+    totalPages = pdfDoc.numPages;
+
+    // Populate page selector
+    const sel = document.getElementById('signPageSel');
+    for (let i = 1; i <= totalPages; i++) {
+      const o = document.createElement('option');
+      o.value = i;
+      o.textContent = 'Halaman ' + i + (i === totalPages ? ' (terakhir)' : '');
+      if (i === totalPages) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => {
+      currentPage = parseInt(sel.value);
+      renderPage(currentPage);
+    });
+
+    currentPage = totalPages; // default to last page
+    await renderPage(currentPage);
+    updatePageNav();
+    document.getElementById('loadScreen').classList.add('hide');
+  } catch(e) {
+    document.getElementById('loadMsg').textContent = 'Gagal memuat dokumen: ' + e.message;
+    console.error(e);
+  }
+}
+
+async function renderPage(num) {
+  const page = await pdfDoc.getPage(num);
+  const viewport = page.getViewport({ scale: pdfScale });
+  const canvas = document.getElementById('pdfCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  updatePageNav();
+
+  // Reposition QR overlay if visible
+  const ov = document.getElementById('qrOverlay');
+  if (ov.style.display === 'block') {
+    // Keep QR within bounds
+    clampOverlay();
+  }
+}
+
+function updatePageNav() {
+  document.getElementById('pageInfo').textContent = `Halaman ${currentPage} / ${totalPages}`;
+  document.getElementById('btnPrev').disabled = currentPage <= 1;
+  document.getElementById('btnNext').disabled = currentPage >= totalPages;
+}
+
+function changePage(delta) {
+  const newPage = currentPage + delta;
+  if (newPage < 1 || newPage > totalPages) return;
+  currentPage = newPage;
+  document.getElementById('signPageSel').value = currentPage;
+  renderPage(currentPage);
+}
+
+// --- QR Code Generation ---
+function generateQR() {
+  const name = document.getElementById('sigName').value.trim();
+  const jabatan = document.getElementById('sigJabatan').value.trim();
+  if (!name) { showMsg('msgSign', 'Isi nama penandatangan terlebih dahulu.', 'error'); return; }
+
+  const now = new Date();
+  const tgl = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+  const jam = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+  // Build QR data object — no innerHTML, use JSON
+  const qrData = JSON.stringify({
+    nama: name,
+    jabatan: jabatan || '-',
+    tanggal: tgl + ' ' + jam,
+    fileId: FILE_ID,
+    dokumen: DOC_TITLE,
+    status: 'Tanda Tangan Elektronik Sah',
+  });
+
+  const holder = document.getElementById('qrCanvasHolder');
+  holder.innerHTML = '';
+  new QRCode(holder, {
+    text: qrData,
+    width: qrSize,
+    height: qrSize,
+    colorDark: '#1a1a2e',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H,
+  });
+
+  // Set label safely using textContent
+  const lbl = document.getElementById('qrLabel');
+  lbl.textContent = name + (jabatan ? ' · ' + jabatan : '');
+
+  const ov = document.getElementById('qrOverlay');
+  ov.style.display = 'block';
+  ov.style.left = '30px';
+  ov.style.top = '30px';
+
+  document.getElementById('afterQrSection').style.display = 'block';
+  document.getElementById('signPageSel').value = currentPage;
+
+  // Capture QR data URL after render
+  setTimeout(() => {
+    const el = holder.querySelector('canvas') || holder.querySelector('img');
+    if (el) {
+      qrDataURL = el.tagName === 'CANVAS' ? el.toDataURL('image/png') : el.src;
+    }
+  }, 300);
+
+  showMsg('msgSign', 'QR Code dibuat. Seret ke posisi tanda tangan di dokumen.', 'info');
+}
+
+function resizeQR(val) {
+  qrSize = parseInt(val);
+  document.getElementById('qrSizeVal').textContent = qrSize + 'px';
+  const holder = document.getElementById('qrCanvasHolder');
+  const c = holder.querySelector('canvas');
+  const i = holder.querySelector('img');
+  if (c) { c.style.width = qrSize + 'px'; c.style.height = qrSize + 'px'; }
+  if (i) { i.style.width = qrSize + 'px'; i.style.height = qrSize + 'px'; }
+  // Refresh QR data URL after resize
+  setTimeout(() => {
+    const el = holder.querySelector('canvas') || holder.querySelector('img');
+    if (el) qrDataURL = el.tagName === 'CANVAS' ? el.toDataURL('image/png') : el.src;
+  }, 100);
+}
+
+// --- Drag & Drop QR Overlay ---
+const overlay = document.getElementById('qrOverlay');
+const resizeHandle = document.getElementById('resizeHandle');
+const canvasWrap = document.getElementById('canvasWrap');
+
+overlay.addEventListener('mousedown', startDrag);
+overlay.addEventListener('touchstart', startDragTouch, { passive: false });
+resizeHandle.addEventListener('mousedown', startResize);
+resizeHandle.addEventListener('touchstart', startResizeTouch, { passive: false });
+
+function startDrag(e) {
+  if (e.target === resizeHandle) return;
+  e.preventDefault();
+  isDragging = true;
+  const rect = overlay.getBoundingClientRect();
+  dragOffX = e.clientX - rect.left;
+  dragOffY = e.clientY - rect.top;
+}
+function startDragTouch(e) {
+  if (e.target === resizeHandle) return;
+  e.preventDefault();
+  isDragging = true;
+  const t = e.touches[0];
+  const rect = overlay.getBoundingClientRect();
+  dragOffX = t.clientX - rect.left;
+  dragOffY = t.clientY - rect.top;
+}
+function startResize(e) {
+  e.preventDefault(); e.stopPropagation();
+  isResizing = true;
+  resizeStartX = e.clientX; resizeStartY = e.clientY;
+  resizeStartSize = qrSize;
+}
+function startResizeTouch(e) {
+  e.preventDefault(); e.stopPropagation();
+  isResizing = true;
+  const t = e.touches[0];
+  resizeStartX = t.clientX; resizeStartY = t.clientY;
+  resizeStartSize = qrSize;
+}
+
+document.addEventListener('mousemove', onMove);
+document.addEventListener('touchmove', onMoveTouch, { passive: false });
+document.addEventListener('mouseup', endDrag);
+document.addEventListener('touchend', endDrag);
+
+function onMove(e) {
+  if (isDragging) moveTo(e.clientX, e.clientY);
+  if (isResizing) doResize(e.clientX, e.clientY);
+}
+function onMoveTouch(e) {
+  e.preventDefault();
+  const t = e.touches[0];
+  if (isDragging) moveTo(t.clientX, t.clientY);
+  if (isResizing) doResize(t.clientX, t.clientY);
+}
+function moveTo(cx, cy) {
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  let x = cx - wrapRect.left - dragOffX;
+  let y = cy - wrapRect.top - dragOffY;
+  x = Math.max(0, Math.min(x, canvasWrap.offsetWidth - overlay.offsetWidth));
+  y = Math.max(0, Math.min(y, canvasWrap.offsetHeight - overlay.offsetHeight));
+  overlay.style.left = x + 'px';
+  overlay.style.top = y + 'px';
+}
+function doResize(cx, cy) {
+  const delta = Math.max(cx - resizeStartX, cy - resizeStartY);
+  const newSize = Math.min(200, Math.max(60, resizeStartSize + delta));
+  document.getElementById('qrSizeSlider').value = newSize;
+  resizeQR(newSize);
+}
+function endDrag() { isDragging = false; isResizing = false; }
+function clampOverlay() {
+  let x = parseInt(overlay.style.left) || 30;
+  let y = parseInt(overlay.style.top) || 30;
+  x = Math.max(0, Math.min(x, canvasWrap.offsetWidth - overlay.offsetWidth));
+  y = Math.max(0, Math.min(y, canvasWrap.offsetHeight - overlay.offsetHeight));
+  overlay.style.left = x + 'px';
+  overlay.style.top = y + 'px';
+}
+
+// --- Save Signed PDF ---
+async function saveSignedPdf() {
+  if (!qrDataURL) { showMsg('msgSign', 'Buat QR Code terlebih dahulu.', 'error'); return; }
+
+  // Check auth — request token if needed
+  if (!accessToken) {
+    if (!tokenClient) { showMsg('msgSign', 'Sistem belum siap, tunggu sebentar.', 'error'); return; }
+    tokenClient.requestAccessToken({ prompt: '' });
+    return;
+  }
+  await doSave();
+}
+
+function onTokenReady(resp) {
+  if (resp.error) { alert('Login gagal: ' + resp.error); return; }
+  accessToken = resp.access_token;
+  doSave();
+}
+
+async function doSave() {
+  document.getElementById('spinSave').classList.add('show');
+  document.getElementById('btnSave').disabled = true;
+
+  try {
+    // 1. Pastikan pdfBytes tersedia (re-fetch jika fallback tadi)
+    if (!pdfBytes) {
+      document.getElementById('spinSave').querySelector('p').textContent = 'Mengunduh ulang dokumen...';
+      const apiUrl = `https://www.googleapis.com/drive/v3/files/${FILE_ID}?alt=media&key=${CONFIG.API_KEY}`;
+      const r = await fetch(apiUrl, { headers: { Authorization: 'Bearer ' + accessToken } });
+      if (!r.ok) throw new Error('Gagal mengunduh PDF untuk disimpan');
+      const buf = await r.arrayBuffer();
+      pdfBytes = new Uint8Array(buf);
+      document.getElementById('spinSave').querySelector('p').textContent = 'Menyisipkan tanda tangan ke PDF...';
+    }
+
+    // 2. Load PDF with pdf-lib
+    const pdfLibDoc = await PDFLib.PDFDocument.load(pdfBytes);
+    const pages = pdfLibDoc.getPages();
+    const targetPageIndex = parseInt(document.getElementById('signPageSel').value) - 1;
+    const targetPage = pages[targetPageIndex];
+    const { width: pageW, height: pageH } = targetPage.getSize();
+
+    // 2. Get canvas size (rendered)
+    const canvas = document.getElementById('pdfCanvas');
+    const canvW = canvas.width;
+    const canvH = canvas.height;
+
+    // 3. Get QR position & size from overlay (relative to canvas)
+    const wrapRect = canvasWrap.getBoundingClientRect();
+    const ovRect = overlay.getBoundingClientRect();
+    const ovX = ovRect.left - wrapRect.left;
+    const ovY = ovRect.top - wrapRect.top;
+    const ovW = ovRect.width;
+    const ovH = ovRect.height;
+
+    // 4. Convert canvas coords → PDF coords
+    const scaleX = pageW / canvW;
+    const scaleY = pageH / canvH;
+    const pdfX = ovX * scaleX;
+    // PDF y-axis is bottom-up
+    const pdfY = pageH - (ovY + ovH) * scaleY;
+    const pdfQrW = ovW * scaleX;
+    const pdfQrH = ovH * scaleY;
+
+    // 5. Embed QR image — convert data URL to bytes safely (no fetch on data:)
+    const base64Data = qrDataURL.split(',')[1];
+    const binaryStr = atob(base64Data);
+    const qrBytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) qrBytes[i] = binaryStr.charCodeAt(i);
+    const qrImage = await pdfLibDoc.embedPng(qrBytes);
+
+    // 6. Draw QR + label text
+    const font = await pdfLibDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+    const name = document.getElementById('sigName').value.trim();
+    const jabatan = document.getElementById('sigJabatan').value.trim();
+    const tgl = new Date().toLocaleDateString('id-ID');
+
+    targetPage.drawImage(qrImage, { x: pdfX, y: pdfY, width: pdfQrW, height: pdfQrH });
+    // Label below QR
+    const labelY = pdfY - 12;
+    targetPage.drawText('Ditandatangani: ' + name + (jabatan ? ' (' + jabatan + ')' : ''), {
+      x: pdfX, y: labelY, size: 6, font, color: PDFLib.rgb(0.2, 0.2, 0.6),
+    });
+    targetPage.drawText(tgl, {
+      x: pdfX, y: labelY - 8, size: 6, font, color: PDFLib.rgb(0.4, 0.4, 0.4),
+    });
+
+    // 7. Save PDF bytes
+    const signedPdfBytes = await pdfLibDoc.save();
+    const signedBlob = new Blob([signedPdfBytes], { type: 'application/pdf' });
+
+    // 8. Upload signed PDF to Drive
+    const newName = DOC_TITLE.replace(/\.pdf$/i, '') + '_TTD.pdf';
+    const meta = { name: newName };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', signedBlob);
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + accessToken },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || 'Upload gagal');
+    }
+
+    const data = await res.json();
+
+    // Show done
+    document.getElementById('finalLink').value = data.webViewLink;
+    document.getElementById('openDriveLink').href = data.webViewLink;
+    document.getElementById('mainPanel').style.display = 'none';
+    document.getElementById('donePanel').classList.add('show');
+    overlay.style.display = 'none';
+
+  } catch(e) {
+    showMsg('msgSign', 'Error: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    document.getElementById('spinSave').classList.remove('show');
+    document.getElementById('btnSave').disabled = false;
+  }
+}
+
+function copyFinalLink() {
+  const inp = document.getElementById('finalLink');
+  inp.select();
+  navigator.clipboard.writeText(inp.value).catch(() => document.execCommand('copy'));
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = '✓ Disalin!';
+  setTimeout(() => btn.textContent = orig, 2000);
+}
+
+function showMsg(id, text, type) {
+  const el = document.getElementById(id);
+  el.textContent = text; // textContent, bukan innerHTML — aman dari XSS
+  el.className = 'msg show ' + type;
+  if (type === 'error') setTimeout(() => el.classList.remove('show'), 6000);
+}
+</script>
+</body>
+</html>
