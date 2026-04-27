@@ -574,25 +574,19 @@ function generateQR() {
   const tgl = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
   const jam = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-  // Build QR data object — no innerHTML, use JSON
-  const qrData = JSON.stringify({
-    nama: name,
-    jabatan: jabatan || '-',
-    tanggal: tgl + ' ' + jam,
-    fileId: FILE_ID,
-    dokumen: DOC_TITLE,
-    status: 'Tanda Tangan Elektronik Sah',
-  });
+  // Data QR singkat agar tidak overflow
+  const tglSingkat = now.toLocaleDateString("id-ID") + " " + jam;
+  const qrData = name + (jabatan ? "|" + jabatan : "") + "|" + tglSingkat + "|TTD-SAH";
 
-  const holder = document.getElementById('qrCanvasHolder');
-  holder.innerHTML = '';
+  const holder = document.getElementById("qrCanvasHolder");
+  holder.innerHTML = "";
   new QRCode(holder, {
     text: qrData,
     width: qrSize,
     height: qrSize,
-    colorDark: '#1a1a2e',
-    colorLight: '#ffffff',
-    correctLevel: QRCode.CorrectLevel.H,
+    colorDark: "#1a1a2e",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.M,
   });
 
   // Set label safely using textContent
